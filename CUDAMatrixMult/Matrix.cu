@@ -1,45 +1,84 @@
-
-#include "cuda_runtime.h"
-#include "device_launch_parameters.h"
-
-#include <stdio.h>
-
-cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size);
+#include "Matrix.cuh"
 
 __global__ void addKernel(int *c, const int *a, const int *b)
 {
-    int i = threadIdx.x;
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
     c[i] = a[i] + b[i];
+}
+
+__global__ void fillOnes(int *a)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    a[i] = 1;
+}
+
+// Only to be able to attach VS debugger to host code -- NVIDIA PLS!!
+__global__ void debugDummy()
+{
+    __noop;
 }
 
 int main()
 {
+#ifdef DEBUG
+    printf("DEBUG MODE\n");
+    debugDummy <<<1, 1 >>> ();
+#endif // DEBUG
+    
     const int arraySize = 5;
-    const int a[arraySize] = { 1, 2, 3, 4, 5 };
-    const int b[arraySize] = { 10, 20, 30, 40, 50 };
-    int c[arraySize] = { 0 };
+    const int threadMax = 256;
+
+    int numBlocks = (arraySize + threadMax - 1) / threadMax;
+    int blockSize = threadMax > arraySize ? arraySize : threadMax;
+
+    //const int a[arraySize] = { 1, 2, 3, 4, 5 };
+    //const int b[arraySize] = { 10, 20, 30, 40, 50 };
+    //int c[arraySize] = { 0 };
 
     // Add vectors in parallel.
-    cudaError_t cudaStatus = addWithCuda(c, a, b, arraySize);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "addWithCuda failed!");
-        return 1;
-    }
+    //cudaError_t cudaStatus = addWithCuda(c, a, b, arraySize);
+    //if (cudaStatus != cudaSuccess) {
+    //    fprintf(stderr, "addWithCuda failed!");
+    //    return 1;
+    //}
 
-    printf("{1,2,3,4,5} + {10,20,30,40,50} = {%d,%d,%d,%d,%d}\n",
-        c[0], c[1], c[2], c[3], c[4]);
+    //printf("{1,2,3,4,5} + {10,20,30,40,50} = {%d,%d,%d,%d,%d}\n",
+    //    c[0], c[1], c[2], c[3], c[4]);
 
-    // cudaDeviceReset must be called before exiting in order for profiling and
-    // tracing tools such as Nsight and Visual Profiler to show complete traces.
-    cudaStatus = cudaDeviceReset();
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaDeviceReset failed!");
-        return 1;
-    }
+    //// cudaDeviceReset must be called before exiting in order for profiling and
+    //// tracing tools such as Nsight and Visual Profiler to show complete traces.
+    //cudaStatus = cudaDeviceReset();
+    //if (cudaStatus != cudaSuccess) {
+    //    fprintf(stderr, "cudaDeviceReset failed!");
+    //    return 1;
+    //}
+
+    int *a, *d_a;
+    a = (int*)malloc(arraySize * sizeof(int));
+    cudaMallocManaged(&d_a, arraySize * sizeof(int));
+
+    for (int i = 0; i < arraySize; i++)
+        a[i] = 0;
+
+    for (int i = 0; i < arraySize; i++)
+        printf("%d\n", a[i]);
+
+    cudaMemcpy(d_a, a, arraySize * sizeof(int), cudaMemcpyHostToDevice);
+
+    fillOnes <<<numBlocks, blockSize>>> (d_a);
+    cudaDeviceSynchronize();
+
+    cudaMemcpy(a, d_a, arraySize * sizeof(int), cudaMemcpyDeviceToHost);
+
+    for (int i = 0; i < arraySize; i++)
+        printf("%d\n", a[i]);
+
+    free(a);
+    cudaFree(d_a);
 
     return 0;
 }
-
+/**
 // Helper function for using CUDA to add vectors in parallel.
 cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size)
 {
@@ -88,7 +127,7 @@ cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size)
     }
 
     // Launch a kernel on the GPU with one thread for each element.
-    addKernel<<<1, size>>>(dev_c, dev_a, dev_b);
+    addKernel<<< 1, size >>>(dev_c, dev_a, dev_b);
 
     // Check for any errors launching the kernel
     cudaStatus = cudaGetLastError();
@@ -96,7 +135,7 @@ cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size)
         fprintf(stderr, "addKernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
         goto Error;
     }
-    
+
     // cudaDeviceSynchronize waits for the kernel to finish, and returns
     // any errors encountered during the launch.
     cudaStatus = cudaDeviceSynchronize();
@@ -116,6 +155,7 @@ Error:
     cudaFree(dev_c);
     cudaFree(dev_a);
     cudaFree(dev_b);
-    
+
     return cudaStatus;
 }
+**/
